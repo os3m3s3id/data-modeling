@@ -1,0 +1,119 @@
+services:
+
+  # ---------------- PostgreSQL ----------------
+  postgres:
+    image: postgres:16
+    container_name: dm_postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: dm_postgres
+      POSTGRES_PASSWORD: dm_postgres
+      POSTGRES_DB: dm_postgres
+
+    ports:
+      - "5437:5432"
+
+    volumes:
+      - source_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dm_postgres -d dm_postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+    networks:
+      - pipeline_network
+
+  # ---------------- Database Init ----------------
+  db_init:
+    build:
+      context: "./worker/init_db"
+      dockerfile: Dockerfile
+
+    image: db_initializer
+    container_name: db_initializer
+    restart: "no"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    networks:
+      - pipeline_network
+
+  # ---------------- Vectorized DLT Extraction ----------------
+  vec_dlt:
+    build:
+      context: "./dlt"
+      dockerfile: Dockerfile
+
+    image: dlt_data_load
+    container_name: dlt_data_load
+    restart: "no"
+
+    profiles:
+      - manual
+
+    environment:
+      SOURCE_DATABASE_URL: postgresql+psycopg2://dm_postgres:dm_postgres@postgres:5432/dm_postgres
+
+    volumes:
+      - ./data:/data
+      - ./destination:/destination
+      - ./dlt:/app
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    networks:
+      - pipeline_network
+
+
+
+  # ---------------- raw_to_silver ----------------
+  raw_to_silver:
+    build:
+      context: "./worker/raw_to_silver"
+      dockerfile: Dockerfile
+    image: raw_to_silver
+    container_name: raw_to_silver
+    restart: "no"
+    profiles:
+      - manual
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - pipeline_network
+
+
+
+  # ---------------- silver_to_gold ----------------
+  silver_to_gold:
+    build:
+      context: "./worker/silver_to_gold"
+      dockerfile: Dockerfile
+    image: silver_to_gold
+    container_name: silver_to_gold
+    restart: "no"
+    profiles:
+      - manual
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - pipeline_network
+
+
+
+# ---------------- Volumes ----------------
+volumes:
+  source_data:
+
+# ---------------- Networks ----------------
+networks:
+  pipeline_network:
+    driver: bridge

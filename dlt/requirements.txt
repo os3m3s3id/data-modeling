@@ -1,0 +1,5 @@
+dlt[filesystem,parquet]
+sqlalchemy
+psycopg2-binary
+connectorx
+psutil
